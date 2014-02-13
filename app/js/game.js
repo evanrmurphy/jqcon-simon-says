@@ -54,98 +54,50 @@ function (
         return result;
       }
 
-      var gameState = startClicks.merge(activations).
-        withStateMachine([], function (state, event) {
-          var value = event.value();
-          var events = [];
-          var expected;
+      var gameOngoing = false;
 
-          switch (value) {
-            case 'start':
-              if (state.length < 1) {
-                // start a new sequence
-                state =
-                  randomSample(level + this.attr.levelDelta, this.attr.colors);
+      startClicks.onValue(function () {
+        if (!gameOngoing) startGame();
+      })
 
-                events.push(new Bacon.Next({
-                  what: 'start',
-                  data: state.slice()
-                }));
-              }
-              break;
-            default:
-              if (state.length < 1) {
-                break;
-              }
+      function startGame() {
+        gameOngoing = true;
 
-              expected = state.shift();
+        var seqLength = level + this.attr.levelDelta;
+        var simonSays = randomSample(seqLength, this.attr.colors);
 
-              if (expected === value) {
-                if (state.length < 1) {
-                  events.push(new Bacon.Next({
-                    what: 'win'
-                  }));
-                }
-              } else {
-                events.push(new Bacon.Next({
-                  what: 'lose',
-                  data: {
-                    expected: expected,
-                    actual: value
-                  }
-                }));
-                state = [];
-              }
-          }
+        function concat(a, b) { return a.concat(b); }
+        playerSaysProperty = activations.scan([], concat);
 
-          return [state, events];
-        }.bind(this));
+        function evaluatePlay(playerSays) {
+          var expected = simonSays.slice(0, playerSays.length);
+          var isCorrect = _.isEqual(playerSays, expected);
+          var doneSaying = playerSays.length === simonSays.length;
 
-      gameState.
-        filter(function (e) {
-          return e.what === 'start';
-        }).
-        map('.data').
-        flatMap(Bacon, 'sequentially', this.attr.sequenceDelay).
-        map(function (color) {
-          return {
-            color: color
-          };
-        }).onValue(this, 'trigger', 'activation');
+          if (!isCorrect) lose();
+          if (isCorrect && doneSaying) win();
+        }
 
-      var wins = gameState.
-        filter(function (e) {
-          return e.what === 'win';
-        }).
-        map({
-          message: 'Correct!',
-          color: 'green'
-        });
+        playerSaysProperty.onValue(evaluatePlay);
+      }
 
-      wins.onValue(this, 'trigger', 'alert');
-      wins.onValue(function () {
+      function bumpLevel() {
         level++;
-
         this.$node.find(this.attr.levelSelector).text('Level ' + level);
-      }.bind(this));
+      }
 
-      gameState.
-        filter(function (e) {
-          return e.what === 'lose';
-        }).
-        map(function (e) {
-          return {
-            message: 'Wrong.\nExpected\n' + e.data.expected,
-            color: 'red',
-            duration: 1000
-          };
-        }).
-        onValue(this, 'trigger', 'alert');
+      function win() {
+        gameOngoing = false;
+        bumpLevel();
+        // show "Correct!" message
+      }
 
-      gameState.log();
+      function lose() {
+        gameOngoing = false;
+        // show "Wrong" message
+      }
     });
   }
 
   return defineComponent(Game);
 });
-
